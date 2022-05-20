@@ -5,6 +5,7 @@
 #include <asm/uaccess.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
+//#include <mach/platform.h>
 #include <linux/io.h>
 #include <linux/poll.h>
 #include <linux/interrupt.h>
@@ -14,7 +15,6 @@
 
 #define KEY_MAJOR 222
 #define KEY_NAME "KEY_DRIVER"
-
 #define BCM2711_PERL_BASE 0xFE000000
 #define GPIO_BASE (BCM2711_PERL_BASE+0x200000)
 #define GPIO_SIZE 256
@@ -24,32 +24,30 @@ static void* key_map;
 volatile unsigned* key;
 static char tmp_buf;
 static int event_flag = 0;
-
 DECLARE_WAIT_QUEUE_HEAD(waitqueue);
 
 static irqreturn_t ind_interrupt_handler(int irq, void* pdata) {
     int tmp_key;
     tmp_key = (*(key + 13) & (1 << 27)) == 0 ? 0 : 1;
+
     if (tmp_key == 0)
         ++tmp_buf;
+
     wake_up_interruptible(&waitqueue);
     ++event_flag;
 
     return IRQ_HANDLED;
 }
-
-static unsigned key_poll(struct file* mfile, struct poll_table_struct* pt)
-{
+static unsigned key_poll(struct file* mfile, struct poll_table_struct* pt) {
     int mask = 0;
+    poll_wait(mfile, &waitqueue, pt); // interruptible_sleep_on..
 
-    poll_wait(mfile, &waitqueue, pt);
     if (event_flag > 0)
         mask |= (POLLIN | POLLRDNORM);
     event_flag = 0;
 
     return mask;
 }
-
 static int key_open(struct inode* minode, struct file* mfile) {
     int result;
 
@@ -62,23 +60,22 @@ static int key_open(struct inode* minode, struct file* mfile) {
     if (!key_map) {
         printk("error: mapping gpio memory");
         iounmap(key_map);
+
         return -EBUSY;
     }
 
     key = (volatile unsigned int*)key_map;
-
     // output(GPIO 17)
     *(key + 1) &= ~(0x7 << (3 * 7));
     *(key + 1) |= (0x1 << (3 * 7));
-
     // input(GPIO 27)
     *(key + 2) &= ~(0x7 << (3 * 7));
-
     //*(key + 2) |= (0x0 << (3 * 7));
-
     // Edge
     *(key + 22) |= (0x1 << 27);
-    result = request_irq(gpio_to_irq(27), ind_interrupt_handler, IRQF_TRIGGER_FALLING, "gpio_irq_key", NULL);
+
+    result = request_irq(gpio_to_irq(27), ind_interrupt_handler,
+        IRQF_TRIGGER_FALLING, "gpio_irq_key", NULL);
 
     if (result < 0) {
         printk("error: request_irq()");
@@ -92,10 +89,8 @@ static int key_release(struct inode* minode, struct file* mfile) {
     if (key)
         iounmap(key);
     free_irq(gpio_to_irq(27), NULL);
-
     return 0;
 }
-
 static int key_read(struct file* mfile, char* gdata, size_t length, loff_t* off_what) {
     int result;
     printk("key_read = %d\n", tmp_buf);
@@ -107,9 +102,7 @@ static int key_read(struct file* mfile, char* gdata, size_t length, loff_t* off_
 
     return length;
 }
-
-static int key_write(struct file* mfile, const char* gdata, size_t length, loff_t* off_what)
-{
+static int key_write(struct file* mfile, const char* gdata, size_t length, loff_t* off_what) {
     char tmp_buf;
     int result;
     result = copy_from_user(&tmp_buf, gdata, length);
@@ -120,12 +113,12 @@ static int key_write(struct file* mfile, const char* gdata, size_t length, loff_
     }
 
     printk("data from app : %d\n", tmp_buf);
-
     // Control LED
     if (tmp_buf == 0)
         *(key + 7) |= (0x1 << 17);
     else
         *(key + 10) |= (0x1 << 17);
+
     return length;
 }
 
@@ -140,23 +133,21 @@ static struct file_operations key_fops = {
 
 static int _key_init(void) {
     int result;
-
     result = register_chrdev(KEY_MAJOR, KEY_NAME, &key_fops);
     if (result < 0) {
         printk(KERN_WARNING "Can't get any major!\n");
         return result;
     }
-    printk("KEY module uploaded.\n");
-
+    
     return 0;
+    
 }
-static void key_exit(void)
-{
+
+static void key_exit(void) {
     unregister_chrdev(KEY_MAJOR, KEY_NAME);
     printk("KEY module removed.\n");
 }
 
 module_init(_key_init);
 module_exit(key_exit);
-
 MODULE_LICENSE("GPL");
