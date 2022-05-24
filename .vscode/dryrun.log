@@ -1,4 +1,6 @@
 make.exe --dry-run --keep-going --print-directory
-'make.exe'��(��) ���� �Ǵ� �ܺ� ����, ������ �� �ִ� ���α׷�, �Ǵ�
-��ġ ������ �ƴմϴ�.
+make: Entering directory 'c:/Users/Toygoon/workspace/RaspGPIOExamples'
+make: Leaving directory 'c:/Users/Toygoon/workspace/RaspGPIOExamples'
+ 
+make: *** No targets specified and no makefile found.  Stop.
 
